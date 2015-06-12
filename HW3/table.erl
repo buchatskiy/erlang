@@ -1,50 +1,39 @@
 -module(table).
 -export([insert/1, last/1]).
 
-check([])->
-     false;
-check([cache|_])->
-     true;
-check([_|T])->
-     check(T).
-
 insert(Value)->
-    case check(ets:all()) of
-        true->Last_cache_key = ets:last(cache);
-        _->cache = ets:new(cache, [private, named_table, ordered_set]),
-            Last_cache_key = ets:last(cache)
+    try ets:last(cache)
+    catch
+        _:_ -> ets:new(cache, [private, named_table, ordered_set])
     end,
+    Last_cache_key = ets:last(cache),
     case Last_cache_key of
-        '$end_of_table' ->
-            Key = 0;
-        _ ->
-            {id, Key} = Last_cache_key
+        '$end_of_table' -> Key=0;
+        _ -> {id, Key} = Last_cache_key
     end,
     ets:insert(cache, {{id, Key+1},{value, Value},{datetime, {date(), time()}}}).
 
 last(N)->
-    case check(ets:all()) of
-        true->Last_cache_key = ets:last(cache);
-        _->cache = ets:new(cache, [private, named_table, ordered_set]),
-            Last_cache_key = ets:last(cache)
+    try ets:last(cache)
+    catch
+        _:_ -> ets:new(cache, [private, named_table, ordered_set])
     end,
+    Last_cache_key = ets:last(cache),
     case Last_cache_key of
         '$end_of_table' ->
             io:format("Empty table. Use insert(data) to add some data~n");
         _ ->
             {id, Key} = Last_cache_key,
-            last(N, Key)
+            last(N-1, Key)
     end.
 
 last(0, Key)->
     print(Key);
 last(N, Key)->
-    case (Key-N) < 1 of
-        true ->
-            last(N-1, Key);
-        false ->
-            print(Key-N),
-            last(N-1, Key)
+    if
+        N=<0 -> io:format("Wrong number '~p' of last~n", [N+1]);
+        (Key-N) < 1, N>0 -> last(N-1, Key);
+        (Key-N) >= 1, N>0 -> print(Key-N), last(N-1, Key)
     end.
 
 print(CacheId) ->
