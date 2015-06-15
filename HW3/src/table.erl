@@ -15,6 +15,10 @@
     delete_by_range/2
 ]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 start()->
     ets:new(cache, [private, named_table, ordered_set]).
 
@@ -27,7 +31,7 @@ insert(Value)->
         '$end_of_table' -> Key=0;
         _ -> Key = Last_cache_key
     end,
-    ets:insert(cache, {Key+1, Value, now()}).
+    ets:insert(cache, {Key+1, Value, calendar:datetime_to_gregorian_seconds({date(), time()}) }).
 
 last(N)->
     Last_cache_key = ets:last(cache),
@@ -48,15 +52,18 @@ get_with_time(Key) ->
     Res = ets:lookup(cache, Key),
     case Res of
         [] -> false;
-        [{Key, Value, Time}] -> {Value, Time}
+        [{Key, Value, Time}] -> {Value, calendar:gregorian_seconds_to_datetime(Time)}
     end.
 
 get_by_range(From, To) ->
-    Cond = ets:fun2ms(fun({_, Value, Time}) when Time >= From andalso Time =< To -> Value end),
+    FromS=calendar:datetime_to_gregorian_seconds(From),
+    ToS=calendar:datetime_to_gregorian_seconds(To),
+    Cond = ets:fun2ms(fun({_, Value, Time}) when Time >= FromS andalso Time =< ToS -> Value end),
     ets:select(cache, Cond).
 
 get_by_time(Time) ->
-    Cond = ets:fun2ms(fun({_, Value, Time0}) when Time =:= Time0 -> Value end),
+    TimeS=calendar:datetime_to_gregorian_seconds(Time),
+    Cond = ets:fun2ms(fun({_, Value, Time0}) when TimeS =:= Time0 -> Value end),
     Res = ets:select(cache, Cond),
     case Res of
         [] -> [];
@@ -71,5 +78,21 @@ created(Key) ->
     end.
 
 delete_by_range(From, To) ->
-    Cond = ets:fun2ms(fun({_, _, Time}) when Time >= From andalso Time =< To -> true end),
+    FromS=calendar:datetime_to_gregorian_seconds(From),
+    ToS=calendar:datetime_to_gregorian_seconds(To),
+    Cond = ets:fun2ms(fun({_, _, Time}) when Time >= FromS andalso Time =< ToS -> true end),
     ets:select_delete(cache, Cond).
+
+-ifdef(TEST).
+table_test() ->
+    ?assertEqual(cache, table:start()),
+    ?assertEqual(true,table:insert([1,2,3])),
+    {Value, Time} = table:get_with_time(1),
+    ?assertEqual(Value, table:get(1)),
+    ?assertEqual(Value, table:get_by_time(Time)),
+    ?assertEqual(Time, table:created(1)),
+    ?assertEqual(false, table:get(2)),
+    table:delete(1),
+    ?assertEqual(false, table:get(1)),
+    ?assertEqual(true, table:stop()).
+-endif.
