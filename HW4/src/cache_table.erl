@@ -20,7 +20,7 @@
 -endif.
 
 start()->
-    ets:new(cache, [private, named_table, ordered_set]).
+    ets:new(cache, [named_table, ordered_set]).
 
 stop()->
     ets:delete(cache).

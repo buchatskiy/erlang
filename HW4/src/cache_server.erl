@@ -49,11 +49,14 @@ lookup_by_date(DateFrom, DateTo) ->
 
 handle_call({insert, Key, Value}, _From, State) ->
     cache_table:insert(Key, Value),
-    timer: apply_after(State#init_args.clean_time*1000, cache_table, delete, [Key]),
+    timer:apply_after(State#init_args.clean_time*1000, gen_server, call, [?MODULE, {delete, Key}]),
     {reply, ok, State};
 handle_call({lookup, Key}, _From, State) ->
     Value = cache_table:get(Key),
     {reply, {ok, Value}, State};
+handle_call({delete, Key}, _From, State) ->
+    cache_table:delete(Key),
+    {noreply, State};
 handle_call({lookup_by_date, DateFrom, DateTo}, _From, State) ->
     Value = cache_table:get_by_range(DateFrom, DateTo),
     {reply, {ok, Value}, State};
