@@ -1,137 +1,70 @@
 -module(cache_server).
-
+-behaviour(gen_server).
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -export([start_link/1,
+    start_link/0,
     stop/0,
     insert/2,
-    last/1,
-    delete/1,
     lookup/1,
-    get_with_time/1,
-    lookup_by_date/2,
-    get_by_time/1,
-    created/1,
-    delete_by_range/2
+    lookup_by_date/2
 ]).
+
+-export([init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+    ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
-start_link([{ttl, Time}])->
-    register(?MODULE, spawn(fun() -> loop() end)),
-    rpc({start_link, Time}).
+-record(init_args, {
+    clean_time=3600
+}).
 
-stop()->
-    rpc({stop}).
 
-insert(Key, Value)->
-    rpc({insert, Key, Value}).
+start_link([{ttl, Time}]) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, #init_args{clean_time=Time}, []).
 
-last(N)->
-    rpc({last, N}).
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, #init_args{}, []).
 
-delete(Key) ->
-    rpc({delete, Key}).
+init(State) ->
+    cache_table:start(),
+    {ok, State}.
 
+stop() ->
+    gen_server:call(?MODULE, stop).
+
+insert(Key, Value) ->
+    gen_server:call(?MODULE, {insert, Key, Value}).
 lookup(Key) ->
-    rpc({lookup, Key}).
+    gen_server:call(?MODULE, {lookup, Key}).
+lookup_by_date(DateFrom, DateTo) ->
+    gen_server:call(?MODULE, {lookup_by_date, DateFrom, DateTo}).
 
-get_with_time(Key) ->
-    rpc({get_with_time, Key}).
+handle_call({insert, Key, Value}, _From, State) ->
+    cache_table:insert(Key, Value),
+    timer: apply_after(State#init_args.clean_time*1000, cache_table, delete, [Key]),
+    {reply, ok, State};
+handle_call({lookup, Key}, _From, State) ->
+    Value = cache_table:get(Key),
+    {reply, {ok, Value}, State};
+handle_call({lookup_by_date, DateFrom, DateTo}, _From, State) ->
+    Value = cache_table:get_by_range(DateFrom, DateTo),
+    {reply, {ok, Value}, State};
+handle_call(stop, _From, Tab) ->
+    {stop, normal, stopped, Tab}.
 
-lookup_by_date(From, To) ->
-    rpc({lookup_by_date, calendar:datetime_to_gregorian_seconds(From), calendar:datetime_to_gregorian_seconds(To)}).
-
-get_by_time(Time) ->
-    rpc({get_by_time, calendar:datetime_to_gregorian_seconds(Time)}).
-
-created(Key) ->
-    rpc({created, Key}).
-
-delete_by_range(From, To) ->
-    rpc({delete_by_range, calendar:datetime_to_gregorian_seconds(From), calendar:datetime_to_gregorian_seconds(To)}).
-
-rpc(Q) ->
-    ?MODULE ! {self(), Q},
-    receive
-        {?MODULE, Reply} ->
-            Reply
-    end.
-
-loop() ->
-    receive
-        {From, {start_link, Time}} ->
-            From ! {?MODULE, ets:new(cache, [private, named_table, ordered_set])},
-            timer: apply_after(Time*1000, io, format, ["~nShould be table update here!~n", []]),
-            loop();
-        {From, {stop}} ->
-            From ! {?MODULE, ets:delete(cache)},
-            loop();
-        {From, {insert, Key, Value}} ->
-            ets:insert(cache, {Key, Value, calendar:datetime_to_gregorian_seconds({date(), time()}) }),
-            %timer: apply_after(10000, ets, delete, [cache, Key]),
-            From ! {?MODULE, ok},
-            loop();
-        {From, {last, N}} ->
-            Last_cache_key = ets:last(cache),
-            Cond = ets:fun2ms(fun({Key, Value, _}) when Key > (Last_cache_key-N) -> Value end),
-            From ! {?MODULE, {ok, ets:select(cache, Cond)}},
-            loop();
-        {From, {lookup, Key}} ->
-            Res = ets:lookup(cache, Key),
-            case Res of
-                [] -> From ! {?MODULE, false};
-                [{Key, Value, _}] -> From ! {?MODULE, {ok, Value}}
-            end,
-            loop();
-        {From, {delete, Key}} ->
-            From ! {?MODULE, ets:delete(cache, Key)},
-            loop();
-        {From, {get_with_time, Key}} ->
-            Res = ets:lookup(cache, Key),
-            case Res of
-                [] -> From ! {?MODULE, false};
-                [{Key, Value, Time}] -> From ! {?MODULE, {ok, {Value, calendar:gregorian_seconds_to_datetime(Time)}}}
-            end,
-            loop();
-        {From, {lookup_by_date, From, To}} ->
-            Cond = ets:fun2ms(fun({_, Value, Time}) when Time >= From andalso Time =< To -> Value end),
-            From ! {?MODULE, {ok, ets:select(cache, Cond)}},
-            loop();
-        {From, {get_by_time, Time}} ->
-            Cond = ets:fun2ms(fun({_, Value, Time0}) when Time =:= Time0 -> Value end),
-            Res = ets:select(cache, Cond),
-            case Res of
-                [] -> From ! {?MODULE, []};
-                [X] -> From ! {?MODULE, {ok, X}}
-            end,
-            loop();
-        {From, {created, Key}} ->
-            Res = ets:lookup(cache, Key),
-            case Res of
-                [] -> From ! {?MODULE, false};
-                [{Key, _, Time}] -> From ! {?MODULE, {ok, calendar:gregorian_seconds_to_datetime(Time)}}
-            end,
-            loop();
-        {From, {delete_by_range, From, To}} ->
-            Cond = ets:fun2ms(fun({_, Value, Time}) when Time >= From andalso Time =< To -> Value end),
-            From ! {?MODULE, {ok, ets:select_delete(cache, Cond)}},
-            loop()
-    end.
-
-
--ifdef(TEST).
-table_test() ->
-    ?assertEqual(cache, start_link([{ttl,3600}])),
-    ?assertEqual(ok, insert(1, [1,2,3])),
-    {ok, {Value, Time}} = get_with_time(1),
-    ?assertEqual({ok, Value}, lookup(1)),
-    ?assertEqual({ok, Value}, get_by_time(Time)),
-    ?assertEqual({ok, Time}, created(1)),
-    ?assertEqual(false, lookup(2)),
-    delete(1),
-    ?assertEqual(false, lookup(1)),
-    ?assertEqual(true, stop()).
--endif.
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+handle_info(_Info, State) ->
+    {noreply, State}.
+terminate(_Reason, _State) ->
+    ok.
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
