@@ -12,5 +12,5 @@ $ make
 To start the release in the foreground:
 
 ``` bash
-$ ./_rel/hello_world_example/bin/hello_world_example start
+$ ./_rel/json_server/bin/json_server start
 ```
