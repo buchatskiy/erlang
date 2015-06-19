@@ -1,0 +1,16 @@
+%% Feel free to use, reuse and abuse the code in this file.
+
+{application, json_server, [
+	{description, "Json server homework"},
+	{vsn, "0.0.1"},
+	{modules, []},
+	{registered, [json_server_sup]},
+	{applications, [
+		kernel,
+		stdlib,
+		cowboy,
+                jsone
+	]},
+	{mod, {json_server_app, []}},
+	{env, []}
+]}.
