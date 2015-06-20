@@ -20,7 +20,6 @@ start(_Type, _Args) ->
 	{ok, _} = cowboy:start_http(http, 100, [{port, 8080}], [
 		{env, [{dispatch, Dispatch}]}
 	]),
-        cache_server:start_link(),
 	json_server_sup:start_link().
 
 stop(_State) ->

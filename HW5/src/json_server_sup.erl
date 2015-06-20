@@ -19,5 +19,6 @@ start_link() ->
 %% supervisor.
 
 init([]) ->
-	Procs = [],
+	Procs = [{cache_server, {cache_server, start_link, []},
+			permanent, 5000, worker, [cache_server]}],
 	{ok, {{one_for_one, 10, 10}, Procs}}.
